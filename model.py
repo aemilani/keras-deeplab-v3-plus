@@ -17,10 +17,6 @@ https://github.com/JonathanCMitchell/mobilenet_v2_keras
     Classification, Detection and Segmentation](https://arxiv.org/abs/1801.04381)
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from keras.models import Model
 from keras import layers
 from keras.layers import Input
@@ -213,7 +209,7 @@ def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, ski
     return x
 
 
-def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3), classes=21, backbone='mobilenetv2',
+def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3), classes=4, backbone='mobilenetv2',
               OS=16, alpha=1., activation=None):
     """ Instantiates the Deeplabv3+ architecture
 
@@ -368,19 +364,21 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
     # branching for Atrous Spatial Pyramid Pooling
 
     # Image Feature branch
-    shape_before = K.shape(x)
     b4 = GlobalAveragePooling2D()(x)
     # from (b_size, channels)->(b_size, 1, 1, channels)
     b4 = Lambda(lambda x: K.expand_dims(x, 1))(b4)
     b4 = Lambda(lambda x: K.expand_dims(x, 1))(b4)
+    # Shape = (b_size, 1, 1, channels)
     b4 = Conv2D(256, (1, 1), padding='same',
                 use_bias=False, name='image_pooling')(b4)
     b4 = BatchNormalization(name='image_pooling_BN', epsilon=1e-5)(b4)
     b4 = Activation('relu')(b4)
     # upsample. have to use compat because of the option align_corners
     size_before = K.int_shape(x)
-    b4 = Lambda(lambda x: tf.compat.v1.image.resize(x, size_before[1:3],
-                                                    method='bilinear', align_corners=True))(b4)
+    size_now = K.int_shape(b4)
+    b4 = Lambda(lambda x: K.resize_images(x, height_factor=size_before[1]/size_now[1],
+                                          width_factor=size_before[2]/size_now[2], data_format='channels_last',
+                                          interpolation='bilinear')(b4)
     # simple 1x1
     b0 = Conv2D(256, (1, 1), padding='same', use_bias=False, name='aspp0')(x)
     b0 = BatchNormalization(name='aspp0_BN', epsilon=1e-5)(b0)
@@ -413,11 +411,10 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
     if backbone == 'xception':
         # Feature projection
         # x4 (x2) block
-        size_before2 = K.int_shape(x)
-        x = Lambda(lambda xx: tf.compat.v1.image.resize(xx,
-                                                        skip1.shape[1:3],
-                                                        method='bilinear', align_corners=True))(x)
-
+        size_now2 = K.int_shape(x)
+        x = Lambda(lambda xx: K.resize_images(xx, height_factor=skip1.shape[1]/size_now2[1],
+                                              width_factor=skip1.shape[2]/size_now2[2], data_format='channels_last',
+                                              interpolation='bilinear')(x)
         dec_skip1 = Conv2D(48, (1, 1), padding='same',
                            use_bias=False, name='feature_projection0')(skip1)
         dec_skip1 = BatchNormalization(
@@ -437,10 +434,10 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
 
     x = Conv2D(classes, (1, 1), padding='same', name=last_layer_name)(x)
     size_before3 = K.int_shape(img_input)
-    x = Lambda(lambda xx: tf.compat.v1.image.resize(xx,
-                                                    size_before3[1:3],
-                                                    method='bilinear', align_corners=True))(x)
-
+    size_now3 = K.int_shape(x)
+    x = Lambda(lambda xx: K.resize_images(xx, height_factor=size_before3[1]/size_now3[1],
+                                          width_factor=size_before3[2]/size_now3[2], data_format='channels_last',
+                                          interpolation='bilinear'))(x)
     # Ensure that the model takes into account
     # any potential predecessors of `input_tensor`.
     if input_tensor is not None:
